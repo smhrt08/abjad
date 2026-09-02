@@ -1,0 +1,343 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+
+const ROOTS = ["E", "N", "K"];
+const GAME_TIME = 60;
+
+const MOCK_LEADERBOARD = [
+  { word: "KNOWLEDGEABLE", matched: 3, score: 39, pct: 0.1 },
+  { word: "ACKNOWLEDGE", matched: 3, score: 33, pct: 0.2 },
+  { word: "NECKLACE", matched: 3, score: 24, pct: 1.2 },
+  { word: "SKELETON", matched: 3, score: 24, pct: 0.8 },
+  { word: "BLANKET", matched: 3, score: 21, pct: 2.4 },
+  { word: "SNEAKER", matched: 3, score: 21, pct: 3.1 },
+  { word: "KNUCKLE", matched: 3, score: 21, pct: 1.9 },
+  { word: "UNKEMPT", matched: 3, score: 21, pct: 4.3 },
+  { word: "DONKEY", matched: 3, score: 18, pct: 8.7 },
+  { word: "SUNKEN", matched: 3, score: 18, pct: 6.2 },
+  { word: "KNEEL", matched: 3, score: 15, pct: 11.4 },
+  { word: "SNAKE", matched: 3, score: 15, pct: 14.8 },
+  { word: "SNEAK", matched: 3, score: 15, pct: 12.1 },
+  { word: "ANKLE", matched: 3, score: 15, pct: 18.6 },
+  { word: "KNELT", matched: 3, score: 15, pct: 9.3 },
+  { word: "NECK", matched: 3, score: 12, pct: 22.5 },
+  { word: "KEEN", matched: 3, score: 12, pct: 19.8 },
+  { word: "KNEE", matched: 3, score: 12, pct: 31.2 },
+  { word: "KEN", matched: 3, score: 9, pct: 7.1 },
+];
+
+const VALID_WORDS = new Set([
+  "KEN","KEEN","KNEE","KNEEL","KNELT","KNEW","NECK","INK",
+  "ANKLE","KERNEL","KNACK","KNAVE","KNEAD",
+  "KNIFE","KNIGHT","KNIT","KNOB","KNOCK","KNOT","KNOW",
+  "KNOWN","KNOWLEDGE","KNUCKLE","SNAKE","SNEAK","SUNKEN",
+  "TOKEN","TAKEN","SPOKEN","BROKEN","WAKEN","AWAKEN",
+  "BLANKET","CHICKEN","DRUNKEN","ENLARGE","ENRICH",
+  "THANKLESS","THINKING","UNKNOWN","UNKEMPT",
+  "SKELETON","ACKNOWLEDGE","KNOWLEDGEABLE",
+  "KENNEL","KEYNOTE","KINDLE","KINDNESS","KNITWEAR",
+  "SNEAKER","SNEAKING","WEEKEND","WEEKNIGHT",
+  "NETWORK","NECKLACE","NECKTIE","BLINKER","BUNKER",
+  "BANKER","CANKER","CLINKER","CONKER",
+  "DRINKER","FLANKER","HONKER","HUNKER","JUNKER",
+  "LINKER","RANKER","SINKER","STINKER",
+  "TANKER","THINKER","TINKER","WINKER",
+  "DONKEY","MONKEY","TURKEY","JOCKEY","HOCKEY",
+  "NICKEL","NUKE","NUKED","NAKED","INVOKE","INVOKED",
+]);
+
+function checkWord(word) {
+  if (word.length < 3) return { valid: false, reason: "Too short" };
+  const upper = word.toUpperCase();
+  const matched = ROOTS.filter((r) => upper.includes(r));
+  if (VALID_WORDS.has(upper)) return { valid: true, matched, score: calculateScore(upper, matched) };
+  return { valid: false, reason: "Not in word list" };
+}
+function calculateScore(word, matched) {
+  return Math.round(word.length * (matched.length === 3 ? 3 : matched.length === 2 ? 1.5 : 1));
+}
+
+const KEYBOARD_ROWS = [
+  ["Q","W","E","R","T","Y","U","I","O","P"],
+  ["A","S","D","F","G","H","J","K","L"],
+  ["Z","X","C","V","B","N","M"],
+];
+
+const BG = "#252525";
+const SURFACE = "#2e2e2e";
+const BORDER = "rgba(255,255,255,0.06)";
+const TEXT = "#e8e4df";
+const TEXT_DIM = "#777";
+const TEXT_FAINT = "#555";
+const KEY_BG = "#363636";
+const ACCENT = "#5cbdb9";
+
+function RootLetters({ roots, matchedRoots }) {
+  return (
+    <div style={{ display: "flex", gap: 24, justifyContent: "center" }}>
+      {roots.map((letter, i) => {
+        const isMatched = matchedRoots.includes(letter);
+        return (
+          <div key={i} style={{
+            width: 54, height: 62, display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 30, fontWeight: 700,
+            fontFamily: "'Georgia', 'Times New Roman', serif",
+            color: isMatched ? BG : ACCENT,
+            backgroundColor: isMatched ? ACCENT : "transparent",
+            borderBottom: isMatched ? `2px solid ${ACCENT}` : `2px solid rgba(92,189,185,0.3)`,
+            transition: "all 0.25s ease",
+          }}>{letter}</div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Timer({ seconds, total }) {
+  const pct = seconds / total;
+  const urgent = seconds <= 10;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+      <div style={{ width: 120, height: 2, backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+        <div style={{ width: `${pct * 100}%`, height: "100%", backgroundColor: urgent ? "#b55" : TEXT_DIM, transition: "width 1s linear, background-color 0.5s ease" }} />
+      </div>
+      <span style={{ fontSize: 14, fontVariantNumeric: "tabular-nums", fontFamily: "'Georgia', serif", color: urgent ? "#b55" : TEXT_FAINT, fontWeight: 400, minWidth: 20 }}>{seconds}</span>
+    </div>
+  );
+}
+
+function WordDisplay({ word, roots }) {
+  if (!word) {
+    return (
+      <div style={{ height: 56, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 2, height: 28, backgroundColor: TEXT_FAINT, animation: "blink 1s step-end infinite" }} />
+      </div>
+    );
+  }
+  return (
+    <div style={{ height: 56, display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+      {word.toUpperCase().split("").map((char, i) => (
+        <span key={`${i}-${char}-${word.length}`} style={{
+          fontSize: 34, fontWeight: 700,
+          fontFamily: "'Georgia', 'Times New Roman', serif",
+          color: roots.includes(char) ? ACCENT : TEXT_DIM,
+          letterSpacing: 4, animation: "letterIn 0.12s ease-out forwards", display: "inline-block",
+        }}>{char}</span>
+      ))}
+      <div style={{ width: 2, height: 28, backgroundColor: TEXT, marginLeft: 2, animation: "blink 1s step-end infinite" }} />
+    </div>
+  );
+}
+
+function Keyboard({ onKey, onDelete, onSubmit, roots, disabled }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", width: "100%", maxWidth: 480, margin: "0 auto" }}>
+      {KEYBOARD_ROWS.map((row, ri) => (
+        <div key={ri} style={{ display: "flex", gap: 4, justifyContent: "center", width: "100%" }}>
+          {ri === 2 && (
+            <button onClick={onSubmit} disabled={disabled} style={{
+              flex: "0 0 auto", width: 50, height: 42, borderRadius: 5,
+              backgroundColor: disabled ? "#333" : TEXT, color: disabled ? TEXT_FAINT : BG,
+              fontSize: 10, fontWeight: 700, fontFamily: "system-ui, sans-serif",
+              cursor: disabled ? "default" : "pointer", letterSpacing: 1, textTransform: "uppercase",
+            }}>↵</button>
+          )}
+          {row.map((key) => {
+            const isRoot = roots.includes(key);
+            return (
+              <button key={key} onClick={() => onKey(key)} disabled={disabled} style={{
+                flex: "1 1 0", maxWidth: 36, height: 42, borderRadius: 5,
+                border: "1px solid rgba(255,255,255,0.04)",
+                backgroundColor: disabled ? "#2a2a2a" : isRoot ? "#2a4a49" : KEY_BG,
+                color: disabled ? TEXT_FAINT : isRoot ? ACCENT : "#aaa",
+                fontSize: 14, fontWeight: isRoot ? 700 : 400,
+                fontFamily: "system-ui, sans-serif",
+                cursor: disabled ? "default" : "pointer", padding: 0,
+                transition: "background-color 0.1s",
+              }}>{key}</button>
+            );
+          })}
+          {ri === 2 && (
+            <button onClick={onDelete} disabled={disabled} style={{
+              flex: "0 0 auto", width: 50, height: 42, borderRadius: 5,
+              border: "1px solid rgba(255,255,255,0.04)", backgroundColor: KEY_BG,
+              color: disabled ? TEXT_FAINT : "#aaa", fontSize: 10, fontWeight: 600,
+              fontFamily: "system-ui, sans-serif", cursor: disabled ? "default" : "pointer",
+              letterSpacing: 1, textTransform: "uppercase",
+            }}>←</button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Feedback({ message, type }) {
+  if (!message) return null;
+  const colors = { error: "#b55", success: TEXT_DIM, info: TEXT_FAINT };
+  return <div style={{ fontSize: 13, color: colors[type] || TEXT_FAINT, fontFamily: "'Georgia', serif", textAlign: "center", height: 18, fontStyle: "italic" }}>{message}</div>;
+}
+
+function ResultsScreen({ playerResult, timeUsed, onPlayAgain }) {
+  const board = (() => {
+    const b = MOCK_LEADERBOARD.map(e => ({ ...e }));
+    if (playerResult) {
+      const exists = b.find(e => e.word === playerResult.word.toUpperCase());
+      if (!exists) b.push({ word: playerResult.word.toUpperCase(), matched: playerResult.matched.length, score: playerResult.score, pct: +(Math.random() * 5 + 0.3).toFixed(1), isPlayer: true });
+      else exists.isPlayer = true;
+    }
+    b.sort((a, c) => c.score - a.score || a.pct - c.pct);
+    return b;
+  })();
+
+  const playerIndex = board.findIndex(e => e.isPlayer);
+  const playerRank = playerIndex + 1;
+  let displayEntries = board.slice(0, 10).map((e, i) => ({ ...e, rank: i + 1 }));
+  if (playerResult && !(playerIndex >= 0 && playerIndex < 10) && playerIndex >= 0) {
+    displayEntries.push({ gap: true });
+    displayEntries.push({ ...board[playerIndex], rank: playerIndex + 1 });
+  }
+
+  return (
+    <div style={{ width: "100%", height: "100vh", backgroundColor: BG, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <style>{`
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        button { outline: none; } button:active { transform: scale(0.97); }
+      `}</style>
+      <div style={{ padding: "28px 24px 16px", textAlign: "center", borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Georgia', serif", color: TEXT_DIM, letterSpacing: 10, textTransform: "uppercase", marginBottom: 14 }}>ABJAD</div>
+        <div style={{ display: "flex", gap: 20, justifyContent: "center", marginBottom: 12 }}>
+          {ROOTS.map((l, i) => <span key={i} style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Georgia', serif", color: ACCENT }}>{l}</span>)}
+        </div>
+        <div style={{ fontSize: 12, color: TEXT_FAINT, fontFamily: "system-ui, sans-serif" }}>2,847 players today</div>
+      </div>
+
+      {playerResult ? (
+        <div style={{ padding: "18px 24px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-between", animation: "fadeUp 0.3s ease forwards" }}>
+          <div>
+            <div style={{ fontSize: 10, color: TEXT_FAINT, fontFamily: "system-ui, sans-serif", textTransform: "uppercase", letterSpacing: 2, marginBottom: 6 }}>Your word</div>
+            <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "'Georgia', serif", letterSpacing: 3 }}>
+              {playerResult.word.toUpperCase().split("").map((c, i) => (
+                <span key={i} style={{ color: ROOTS.includes(c) ? ACCENT : TEXT }}>{c}</span>
+              ))}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 32, fontWeight: 300, fontFamily: "'Georgia', serif", color: TEXT, lineHeight: 1 }}>{playerResult.score}</div>
+            <div style={{ fontSize: 11, color: TEXT_FAINT, fontFamily: "system-ui, sans-serif", marginTop: 4 }}>
+              {playerResult.allThree ? "3/3" : `${playerResult.matched.length}/3`}{playerRank > 0 && ` · #${playerRank}`}{timeUsed !== null && ` · ${timeUsed}s`}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding: "20px 24px", textAlign: "center", borderBottom: `1px solid ${BORDER}` }}>
+          <div style={{ fontSize: 14, color: TEXT_DIM, fontFamily: "'Georgia', serif", fontStyle: "italic" }}>Time's up</div>
+        </div>
+      )}
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
+        <div style={{ padding: "10px 24px 6px", fontSize: 10, color: TEXT_FAINT, fontFamily: "system-ui, sans-serif", textTransform: "uppercase", letterSpacing: 2 }}>Top words</div>
+        {displayEntries.map((entry, i) => {
+          if (entry.gap) return <div key="gap" style={{ padding: "6px 24px", textAlign: "center", fontSize: 12, color: TEXT_FAINT, letterSpacing: 6 }}>···</div>;
+          const isP = entry.isPlayer;
+          return (
+            <div key={entry.word + i} style={{ display: "flex", alignItems: "center", padding: "9px 24px", backgroundColor: isP ? SURFACE : "transparent", borderLeft: isP ? `2px solid ${ACCENT}` : "2px solid transparent" }}>
+              <div style={{ width: 24, fontSize: 12, fontVariantNumeric: "tabular-nums", fontFamily: "system-ui, sans-serif", color: isP ? ACCENT : TEXT_FAINT, fontWeight: 500, flexShrink: 0 }}>{entry.rank}</div>
+              <div style={{ flex: 1, fontSize: 15, fontWeight: isP ? 700 : 400, fontFamily: "'Georgia', serif", color: isP ? TEXT : TEXT_DIM, letterSpacing: 1.5 }}>{entry.word}</div>
+              <div style={{ width: 30, textAlign: "right", fontSize: 13, fontWeight: 600, fontFamily: "system-ui, sans-serif", color: isP ? ACCENT : TEXT_FAINT, flexShrink: 0, marginRight: 10 }}>{entry.score}</div>
+              <div style={{ width: 70, display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <div style={{ flex: 1, height: 2, backgroundColor: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(entry.pct * 3, 100)}%`, height: "100%", backgroundColor: isP ? ACCENT : "rgba(255,255,255,0.1)" }} />
+                </div>
+                <span style={{ fontSize: 10, fontVariantNumeric: "tabular-nums", fontFamily: "system-ui, sans-serif", color: isP ? TEXT_FAINT : "rgba(255,255,255,0.15)", minWidth: 28, textAlign: "right" }}>{entry.pct.toFixed(1)}%</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ padding: "14px 24px 28px", borderTop: `1px solid ${BORDER}`, display: "flex", gap: 10, justifyContent: "center" }}>
+        <button onClick={onPlayAgain} style={{ padding: "10px 22px", borderRadius: 5, border: `1px solid ${BORDER}`, backgroundColor: "transparent", color: TEXT_DIM, fontSize: 13, fontFamily: "system-ui, sans-serif", cursor: "pointer" }}>Play again</button>
+        <button onClick={() => {}} style={{ padding: "10px 22px", borderRadius: 5, border: "none", backgroundColor: ACCENT, color: BG, fontSize: 13, fontWeight: 600, fontFamily: "system-ui, sans-serif", cursor: "pointer" }}>Share</button>
+      </div>
+    </div>
+  );
+}
+
+export default function Abjad() {
+  const [gameState, setGameState] = useState("ready");
+  const [word, setWord] = useState("");
+  const [seconds, setSeconds] = useState(GAME_TIME);
+  const [feedback, setFeedback] = useState({ message: "", type: "info" });
+  const [finalResult, setFinalResult] = useState(null);
+  const [timeUsed, setTimeUsed] = useState(null);
+  const timerRef = useRef(null);
+  const matchedRoots = ROOTS.filter((r) => word.toUpperCase().includes(r));
+
+  const endGame = useCallback((result, elapsed) => { clearInterval(timerRef.current); setFinalResult(result); setTimeUsed(elapsed); setGameState("ended"); }, []);
+  const startGame = useCallback(() => { setGameState("playing"); setWord(""); setSeconds(GAME_TIME); setFinalResult(null); setTimeUsed(null); setFeedback({ message: "", type: "info" }); }, []);
+  const resetGame = useCallback(() => { setGameState("ready"); setWord(""); setSeconds(GAME_TIME); setFinalResult(null); setTimeUsed(null); setFeedback({ message: "", type: "info" }); }, []);
+
+  useEffect(() => {
+    if (gameState !== "playing") return;
+    timerRef.current = setInterval(() => { setSeconds((p) => { if (p <= 1) { clearInterval(timerRef.current); setFinalResult(null); setTimeUsed(null); setGameState("ended"); return 0; } return p - 1; }); }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [gameState]);
+
+  const handleSubmit = useCallback(() => {
+    if (gameState !== "playing" || !word) return;
+    const result = checkWord(word);
+    if (!result.valid) { setFeedback({ message: result.reason, type: "error" }); return; }
+    endGame({ word: word.toUpperCase(), matched: result.matched, score: result.score, allThree: result.matched.length === 3 }, GAME_TIME - seconds);
+  }, [gameState, word, seconds, endGame]);
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (gameState === "ready" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); startGame(); return; }
+      if (gameState !== "playing") return;
+      if (e.key === "Backspace") { setWord((p) => p.slice(0, -1)); setFeedback({ message: "", type: "info" }); }
+      else if (e.key === "Enter") handleSubmit();
+      else if (/^[a-zA-Z]$/.test(e.key)) { setWord((p) => (p.length >= 20 ? p : p + e.key.toUpperCase())); setFeedback({ message: "", type: "info" }); }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [gameState, word, startGame, handleSubmit]);
+
+  const handleKey = (key) => { if (gameState === "ready") { startGame(); setTimeout(() => setWord(key), 50); return; } if (gameState !== "playing" || word.length >= 20) return; setWord((p) => p + key); setFeedback({ message: "", type: "info" }); };
+  const handleDelete = () => { if (gameState !== "playing") return; setWord((p) => p.slice(0, -1)); setFeedback({ message: "", type: "info" }); };
+
+  if (gameState === "ended") return <ResultsScreen playerResult={finalResult} timeUsed={timeUsed} onPlayAgain={resetGame} />;
+
+  return (
+    <div style={{ width: "100%", height: "100vh", backgroundColor: BG, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative", userSelect: "none" }}>
+      <style>{`
+        @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+        @keyframes letterIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        button { outline: none; } button:active { transform: scale(0.97); }
+      `}</style>
+      <div style={{ flex: "1 1 55%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 24px 0", gap: 20 }}>
+        {gameState === "ready" && <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Georgia', serif", color: TEXT, letterSpacing: 14, textTransform: "uppercase" }}>ABJAD</div>}
+        {gameState === "playing" && <Timer seconds={seconds} total={GAME_TIME} />}
+        {gameState === "playing" && <RootLetters roots={ROOTS} matchedRoots={matchedRoots} />}
+        {gameState === "ready" && (
+          <div style={{ textAlign: "center", animation: "fadeUp 0.4s ease forwards" }}>
+            <div style={{ marginBottom: 16 }}>
+              <button onClick={startGame} style={{ padding: "11px 34px", borderRadius: 5, backgroundColor: TEXT, color: BG, fontSize: 13, fontWeight: 700, fontFamily: "system-ui, sans-serif", cursor: "pointer", letterSpacing: 2, textTransform: "uppercase" }}>Start</button>
+            </div>
+            <div style={{ fontSize: 13, color: TEXT_FAINT, fontFamily: "'Georgia', serif", fontStyle: "italic" }}>One word. Sixty seconds.</div>
+          </div>
+        )}
+        {gameState === "playing" && (
+          <>
+            <WordDisplay word={word} roots={ROOTS} />
+            <Feedback message={feedback.message} type={feedback.type} />
+          </>
+        )}
+      </div>
+      <div style={{ flex: "0 0 auto", padding: "10px 8px 24px", borderTop: `1px solid ${BORDER}` }}>
+        <Keyboard onKey={handleKey} onDelete={handleDelete} onSubmit={handleSubmit} roots={ROOTS} disabled={gameState !== "playing"} />
+      </div>
+    </div>
+  );
+}
